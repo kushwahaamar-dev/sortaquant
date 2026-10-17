@@ -53,3 +53,4 @@ scratch/
 
 # Local verification proof runs (skill recipes stay tracked)
 .cursor/skills/verify-sortaquant/artifacts/
+.audit/

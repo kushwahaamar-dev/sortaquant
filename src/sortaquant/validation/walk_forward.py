@@ -77,20 +77,14 @@ class WalkForwardValidator:
                 t for t in trade_ticks if test_bbos[0].timestamp_ns <= t.timestamp_ns <= test_bbos[-1].timestamp_ns
             ]
 
-            # Run tick simulator on test slice
+            # Run tick simulator on test slice (causal tape order)
             sim = TickSimulator(maker_fee_bps=self.maker_fee_bps)
-            trade_idx = 0
-            n_trades = len(test_trades)
-
-            for bbo in test_bbos:
-                sim.step_bbo(bbo)
-                # Process trades with matching timestamps
-                while trade_idx < n_trades and test_trades[trade_idx].timestamp_ns <= bbo.timestamp_ns:
-                    sim.step_trade(test_trades[trade_idx])
-                    trade_idx += 1
+            sim.run_tape(test_bbos, test_trades)
 
             summary = sim.summarize()
-            gate1_ok = (self.maker_fee_bps + summary.markout_1s_avg_bps) < 0.60
+            # Adverse-signed AS: negate favorable simulator markout for the hurdle
+            adverse_1s = -summary.markout_1s_avg_bps
+            gate1_ok = (self.maker_fee_bps + adverse_1s) < 0.60
 
             split_results.append(
                 WalkForwardSplitResult(

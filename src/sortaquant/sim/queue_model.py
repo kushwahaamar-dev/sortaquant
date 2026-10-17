@@ -17,6 +17,7 @@ class QueueOrder:
     behind_volume: float
     remaining_size: float
     created_at_ns: int
+    matchable_at_ns: int = 0
 
 
 class OrderQueueTracker:
@@ -33,9 +34,9 @@ class OrderQueueTracker:
         size: float,
         existing_level_depth: float,
         timestamp_ns: int,
+        ack_delay_ns: int = 0,
     ) -> QueueOrder:
         """Adds a limit order to the back of the queue at the specified price level."""
-        # Our order is placed behind all currently existing volume at that level
         order = QueueOrder(
             order_id=order_id,
             side=side,
@@ -45,6 +46,7 @@ class OrderQueueTracker:
             behind_volume=0.0,
             remaining_size=size,
             created_at_ns=timestamp_ns,
+            matchable_at_ns=timestamp_ns + max(0, ack_delay_ns),
         )
         self._orders[order_id] = order
         return order
@@ -71,16 +73,24 @@ class OrderQueueTracker:
                 else:
                     order.ahead_volume = max(0.0, order.ahead_volume - cancel_volume)
 
-    def on_market_trade(self, trade_price: float, trade_size: float, trade_side: Side) -> list[Tuple[str, float]]:
+    def on_market_trade(
+        self,
+        trade_price: float,
+        trade_size: float,
+        trade_side: Side,
+        trade_time_ns: Optional[int] = None,
+    ) -> list[Tuple[str, float]]:
         """Matches incoming trade volume against queue ahead volume and our orders.
 
-        Returns list of (order_id, fill_size).
+        Returns list of (order_id, fill_size). Orders are ignored until matchable_at_ns.
         """
         fills: list[Tuple[str, float]] = []
+        remaining = trade_size
 
         for order_id, order in list(self._orders.items()):
-            # A BUY market trade matches resting SELL limit orders at or below trade price
-            # A SELL market trade matches resting BUY limit orders at or above trade price
+            if trade_time_ns is not None and trade_time_ns < order.matchable_at_ns:
+                continue
+
             matches = False
             if trade_side == Side.BUY and order.side == Side.SELL:
                 if trade_price >= order.price - 1e-6:
@@ -89,19 +99,18 @@ class OrderQueueTracker:
                 if trade_price <= order.price + 1e-6:
                     matches = True
 
-            if not matches:
+            if not matches or remaining <= 1e-12:
                 continue
 
-            # First, trade volume consumes volume ahead of us in the FIFO queue
-            if trade_size <= order.ahead_volume:
-                order.ahead_volume -= trade_size
+            if remaining <= order.ahead_volume:
+                order.ahead_volume -= remaining
+                remaining = 0.0
             else:
-                # Excess volume fills our order
-                excess = trade_size - order.ahead_volume
+                excess = remaining - order.ahead_volume
                 order.ahead_volume = 0.0
-
                 fill_size = min(order.remaining_size, excess)
                 order.remaining_size -= fill_size
+                remaining -= fill_size
                 fills.append((order_id, fill_size))
 
                 if order.remaining_size <= 1e-9:

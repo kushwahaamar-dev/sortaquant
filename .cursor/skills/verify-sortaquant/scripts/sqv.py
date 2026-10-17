@@ -129,15 +129,20 @@ def cmd_simulate(args: argparse.Namespace) -> None:
         )
         regimes = set()
         halt_observed = False
+        trade_idx = 0
         for bbo in bbos:
+            while trade_idx < len(trades) and trades[trade_idx].timestamp_ns < bbo.timestamp_ns:
+                sim.step_trade(trades[trade_idx])
+                trade_idx += 1
             sim.step_bbo(bbo)
             posterior = sim.regime_engine.posterior
             active = RegimeState(max(range(len(posterior)), key=lambda i: posterior[i]))
             regimes.add(active.name)
             if sim.regime_engine.is_halted:
                 halt_observed = True
-        for trade in trades:
-            sim.step_trade(trade)
+        while trade_idx < len(trades):
+            sim.step_trade(trades[trade_idx])
+            trade_idx += 1
         summary = sim.summarize()
         payload = {
             "ok": True,
@@ -158,7 +163,7 @@ def cmd_simulate(args: argparse.Namespace) -> None:
             "halt_observed": halt_observed,
             "regimes": sorted(regimes),
             "position": sim.risk_governor.current_position,
-            "loop": "all bbos, then all trades",
+            "loop": "causal: trades before each bbo",
         }
         problems = []
         if payload["bbo_count"] != args.ticks:

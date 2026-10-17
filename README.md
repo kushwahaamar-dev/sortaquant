@@ -44,18 +44,17 @@ Requires Python >= 3.11 and [`uv`](https://astral.sh/uv).
 # Install dependencies
 uv sync --extra dev
 
-# Run test suite (39 tests)
+# Run test suite
 uv run pytest
 
-# Run tick simulation
+# Run tick simulation (causal tape order)
 uv run python -c "
 from sortaquant.adapters.replay import MarketReplayAdapter
 from sortaquant.sim.simulator import TickSimulator
 
 bbos, trades = MarketReplayAdapter.generate_synthetic_regime_dataset(500)
 sim = TickSimulator(symbol='BTCFDUSD', maker_fee_bps=0.0)
-for b in bbos: sim.step_bbo(b)
-for t in trades: sim.step_trade(t)
+sim.run_tape(bbos, trades)
 s = sim.summarize()
 print(f'Trades: {s.total_trades} | Net PnL: \${s.total_net_pnl:.2f} | 1s Markout: {s.markout_1s_avg_bps:.3f} bps')
 "

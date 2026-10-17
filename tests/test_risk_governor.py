@@ -161,8 +161,8 @@ def test_risk_governor_drawdown_halt():
     now_ns = 1_000_000_000
     governor.on_feed_packet(now_ns)
 
-    # Suffer 10% loss
-    governor.realized_pnl = -100.0  # 10% of 1000
+    # Cash ledger down 10% with flat inventory
+    governor.cash = 900.0
 
     quotes = QuotePair(
         bid_price=100.0,
@@ -184,3 +184,55 @@ def test_risk_governor_drawdown_halt():
     assert gq.is_halted is True
     assert gq.bid_price is None
     assert gq.ask_price is None
+
+
+def test_cash_ledger_books_notional_and_fees():
+    governor = DeterministicRiskGovernor(RiskLimitsConfig(capital_budget=100_000.0))
+    now_ns = 1_000_000_000
+    governor.on_fill(
+        Fill(
+            fill_id="1",
+            order_id="1",
+            symbol="BTCFDUSD",
+            side=Side.BUY,
+            price=50_000.0,
+            size=1.0,
+            fee=5.0,
+            is_maker=True,
+            timestamp_ns=now_ns,
+            mid_at_fill=50_000.0,
+        ),
+        current_mid=50_000.0,
+    )
+    assert governor.cash == pytest.approx(100_000.0 - 50_000.0 - 5.0)
+    assert governor.current_position == pytest.approx(1.0)
+    assert governor.equity(50_100.0) == pytest.approx(governor.cash + 50_100.0)
+
+
+def test_adverse_markout_streak_pauses_quotes():
+    config = RiskLimitsConfig(max_loss_streak=2)
+    governor = DeterministicRiskGovernor(config)
+    now_ns = 1_000_000_000
+    governor.on_feed_packet(now_ns)
+    governor.on_adverse_markout(now_ns)
+    governor.on_adverse_markout(now_ns + 1)
+    assert governor.is_streak_paused is True
+
+    quotes = QuotePair(
+        bid_price=100.0,
+        bid_size=1.0,
+        ask_price=101.0,
+        ask_size=1.0,
+        fair_value=100.5,
+        regime=RegimeState.R1_CALM,
+        timestamp_ns=now_ns,
+    )
+    gq = governor.evaluate_quotes(
+        quotes=quotes,
+        mid_price=100.0,
+        volatility=0.01,
+        l2_depth=100.0,
+        now_ns=now_ns + 2,
+    )
+    assert gq.is_halted is True
+    assert gq.bid_price is None
