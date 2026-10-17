@@ -32,33 +32,45 @@ sortaquant/
 ├── risk/         # Governor, Q_max ceiling, 500ms stale-feed watchdog, token bucket
 ├── slow_brain/   # TradingView MCP client, Pydantic schema, confidence decay
 ├── adapters/     # Binance WebSocket client, deterministic replay
+├── runtime/      # Paper trading session (live book, virtual fills)
 ├── sim/          # Discrete-event tick simulator (FIFO queue priority, 2x latency stress)
 └── validation/   # Gate 1 auditor, markout reports, purged walk-forward CV
 ```
 
-## Quickstart
+## How to use it
 
 Requires Python >= 3.11 and [`uv`](https://astral.sh/uv).
 
 ```bash
-# Install dependencies
 uv sync --extra dev
-
-# Run test suite
 uv run pytest
-
-# Run tick simulation (causal tape order)
-uv run python -c "
-from sortaquant.adapters.replay import MarketReplayAdapter
-from sortaquant.sim.simulator import TickSimulator
-
-bbos, trades = MarketReplayAdapter.generate_synthetic_regime_dataset(500)
-sim = TickSimulator(symbol='BTCFDUSD', maker_fee_bps=0.0)
-sim.run_tape(bbos, trades)
-s = sim.summarize()
-print(f'Trades: {s.total_trades} | Net PnL: \${s.total_net_pnl:.2f} | 1s Markout: {s.markout_1s_avg_bps:.3f} bps')
-"
 ```
+
+**Simulate** (offline synthetic tape):
+
+```bash
+uv run sortaquant simulate --symbol BTCFDUSD --ticks 500
+```
+
+**Paper trade** (live Binance book, virtual fills, **no orders sent**):
+
+```bash
+# Liquid tape (best for watching the engine live)
+uv run sortaquant paper --symbol BTCUSDT --duration 60
+
+# Gate 1 target pair (zero maker fee; quieter trade tape)
+uv run sortaquant paper --symbol BTCFDUSD --duration 60
+```
+
+Market data defaults to `data-stream.binance.vision` (avoids geo blocks on `stream.binance.com`). Override with `--data-host` if needed.
+
+**Gate 1 venue audit** (static fee/spread table):
+
+```bash
+uv run sortaquant audit
+```
+
+Paper mode opens a real WebSocket, runs the fast body, and matches your virtual quotes against the live trade tape. It does not place, cancel, or amend exchange orders. Live trading is not shipped.
 
 ## Key Invariants
 

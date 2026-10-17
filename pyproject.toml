@@ -24,6 +24,9 @@ dev = [
     "pytest-cov>=4.1.0",
 ]
 
+[project.scripts]
+sortaquant = "sortaquant.cli:main"
+
 [build-system]
 requires = ["uv_build>=0.9.24,<0.10.0"]
 build-backend = "uv_build"

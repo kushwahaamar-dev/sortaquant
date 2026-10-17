@@ -11,7 +11,7 @@ The RAIM (Regime-Adaptive, Inventory-Aware Market Making) engine has passed all 
 | **Gate 3** | Test-First Implementation Plan | `docs/03_PLAN.md` | ✅ **PASSED** (Full 8-phase TDD plan) |
 | **Gate 4** | Engine Build & Test Suite | `src/sortaquant/`, 39 tests in `tests/` | ✅ **PASSED** (39/39 tests passing, 87% coverage) |
 | **Gate 5** | Independent Review ("What could I be wrong about?") | `docs/04_INDEPENDENT_REVIEW.md` | ✅ **PASSED** (10 failure modes mitigated) |
-| **Gate 6** | Release Validation & Operator Guide | `docs/05_RELEASE_VALIDATION.md` | ✅ **APPROVED FOR SIMULATION** (paper socket not implemented) |
+| **Gate 6** | Release Validation & Operator Guide | `docs/05_RELEASE_VALIDATION.md` | ✅ **APPROVED FOR SIMULATION & PAPER** (no live order entry) |
 
 ---
 
@@ -43,30 +43,18 @@ uv run pytest --cov=sortaquant --cov-report=term-missing
 
 ## 3. Operating Modes: Simulation -> Paper -> Live
 
-By design, RAIM defaults to **SIMULATION**. Paper trading (live book, virtual fills) and live order placement are not implemented on this branch. `BinanceWebSocketAdapter.connect` does not open a socket yet.
+By design, RAIM supports **SIMULATION** and **PAPER**. Live order placement is not shipped.
 
-### 1. Simulation Mode (Discrete-Event Replay)
+### 1. Simulation Mode
 ```bash
-uv run python -c "
-from sortaquant.adapters.replay import MarketReplayAdapter
-from sortaquant.sim.simulator import TickSimulator
-
-bbos, trades = MarketReplayAdapter.generate_synthetic_regime_dataset(n_ticks=500)
-
-sim = TickSimulator(symbol='BTCFDUSD', maker_fee_bps=0.0, stress_latency_2x=False)
-sim.run_tape(bbos, trades)
-
-summary = sim.summarize()
-print('=== SIMULATION SUMMARY ===')
-print(f'Total Trades: {summary.total_trades}')
-print(f'Net PnL: \${summary.total_net_pnl:.2f}')
-print(f'1s Markout: {summary.markout_1s_avg_bps:.3f} bps')
-print(f'Max Drawdown: {summary.max_drawdown_pct*100:.2f}%')
-"
+uv run sortaquant simulate --symbol BTCFDUSD --ticks 500
 ```
 
-### 2. Paper Mode (not shipped)
-Planned path: live Binance depth/trade WebSocket into `TickSimulator` with no signed orders. Until `connect()` opens a socket and callbacks call `step_bbo` / `step_trade`, use simulation only. Gate 1 venue presets remain available via `Gate1HurdleValidator.audit_venues()`.
+### 2. Paper Mode (live book, virtual execution)
+```bash
+uv run sortaquant paper --symbol BTCFDUSD --duration 60
+```
+This opens the Binance combined depth+trade stream, drives `TickSimulator`, and never sends orders.
 
 ### 3. Slow Brain MCP Server Setup
 The Slow Brain analysis layer runs independently via the official PyPI package:
