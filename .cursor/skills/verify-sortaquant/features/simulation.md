@@ -1,6 +1,6 @@
 # Tick simulation
 
-Tick simulation replays a synthetic regime-switching book through the fast body and prints a performance summary. The operator path streams every BBO, then every trade.
+Tick simulation replays a synthetic regime-switching book through the fast body and prints a performance summary. The operator path is causal: trades with timestamp before each BBO are applied first, then the BBO.
 
 ## Sub-features
 
@@ -21,7 +21,7 @@ Preconditions:
 - Doctor reports version `0.1.0` and `"network": "not contacted"`.
 - `--run-id` is unused by a live `sqv.py` process.
 
-- **Replay.** Run `uv run python .cursor/skills/verify-sortaquant/scripts/sqv.py simulate --run-id <run-id>`. Exit code `0`. `artifacts/<run-id>/simulation/result.json` has `"ok": true`, `"bbo_count": 500`, `"tape_trade_count": 250`, `"loop": "all bbos, then all trades"`.
+- **Replay.** Run `uv run python .cursor/skills/verify-sortaquant/scripts/sqv.py simulate --run-id <run-id>`. Exit code `0`. `artifacts/<run-id>/simulation/result.json` has `"ok": true`, `"bbo_count": 500`, `"tape_trade_count": 250`, `"loop": "causal: trades before each bbo"`.
 - **Zero fee.** The same file has `"symbol": "BTCFDUSD"`, `"maker_fee_bps": 0.0`, and `"maker_fees_paid": 0.0`.
 - **Regimes.** `"regimes"` is `["R1_CALM", "R2_TRENDING", "R3_HIGHVOL", "R4_BREAK"]`.
 - **Halt and fill.** `"halt_observed": true` and `"total_trades": 1`. Seed 42 produces one fill on this loop.
@@ -29,7 +29,7 @@ Preconditions:
 
 ## Gotchas
 
-- Streaming every trade after every BBO is the documented operator loop. Interleaving trades inside the BBO loop is a different path and does not satisfy this recipe.
+- The batch loop that plays every BBO then every trade is not the operator proof. Use the causal loop (or `TickSimulator.run_tape`).
 - `--seed`, `--ticks`, `--symbol`, or `--maker-fee-bps` other than the defaults skip the fill, halt, and regime assertions. The canonical proof uses the defaults.
 - `total_net_pnl` of `0.0` is not the proof. The proof is the fill count, the zero fee, the four regimes, and the halt.
 - A halt flag read off a private attribute is not this drive. `sqv.py` uses `RegimeEngine.posterior` and `RegimeEngine.is_halted`.

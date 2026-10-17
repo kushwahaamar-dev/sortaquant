@@ -55,36 +55,37 @@ class MarketReplayAdapter(BaseExchangeAdapter):
                 spread = price * 0.0001
                 drift = -0.1 * (price - start_price) + rng.normal(0, 0.5)
                 vol = 0.5
-                bid_sz = rng.uniform(5.0, 10.0)
-                ask_sz = rng.uniform(5.0, 10.0)
+                # Depths stay below typical trade size so FIFO ahead-volume can clear.
+                bid_sz = rng.uniform(0.8, 1.8)
+                ask_sz = rng.uniform(0.8, 1.8)
             elif i < 280:
                 # R2: Trending upward, steady drift, buyer aggression
                 spread = price * 0.00015
                 drift = 2.5 + rng.normal(0, 1.0)
                 vol = 1.0
-                bid_sz = rng.uniform(8.0, 15.0)  # Heavy bids
-                ask_sz = rng.uniform(2.0, 5.0)
+                bid_sz = rng.uniform(1.2, 2.5)
+                ask_sz = rng.uniform(0.4, 1.0)
             elif i < 400:
                 # R3: High vol, widening spread ~4 bps, volatile swings
                 spread = price * 0.0004
                 drift = rng.normal(0, 12.0)
                 vol = 8.0
-                bid_sz = rng.uniform(2.0, 6.0)
-                ask_sz = rng.uniform(2.0, 6.0)
+                bid_sz = rng.uniform(0.4, 1.2)
+                ask_sz = rng.uniform(0.4, 1.2)
             elif i < 460:
                 # R4: Structural Break / Flash Crash: massive downward cascade, spread blown out ~10 bps
                 spread = price * 0.0010
                 drift = -25.0 + rng.normal(0, 5.0)
                 vol = 20.0
-                bid_sz = rng.uniform(0.5, 2.0)  # Bids vaporized
-                ask_sz = rng.uniform(15.0, 30.0)
+                bid_sz = rng.uniform(0.1, 0.4)
+                ask_sz = rng.uniform(2.0, 5.0)
             else:
                 # Recovery back to R1
                 spread = price * 0.00012
                 drift = rng.normal(0, 0.8)
                 vol = 0.6
-                bid_sz = rng.uniform(6.0, 12.0)
-                ask_sz = rng.uniform(6.0, 12.0)
+                bid_sz = rng.uniform(0.8, 1.8)
+                ask_sz = rng.uniform(0.8, 1.8)
 
             price = max(100.0, price + drift)
             half_s = spread * 0.5
@@ -104,7 +105,7 @@ class MarketReplayAdapter(BaseExchangeAdapter):
             if i % 2 == 0:
                 trade_side = Side.BUY if (drift > 0 or rng.random() > 0.6) else Side.SELL
                 trade_p = ask_p if trade_side == Side.BUY else bid_p
-                trade_sz = rng.uniform(1.0, 4.0)
+                trade_sz = rng.uniform(1.5, 4.0)
                 trades.append(
                     Trade(
                         price=trade_p,

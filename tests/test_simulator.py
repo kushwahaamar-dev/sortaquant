@@ -66,6 +66,24 @@ def test_latency_model_2x_stress():
     assert s2 == pytest.approx(s1 * 2.0)
 
 
+def test_queue_ack_delay_blocks_early_fills():
+    tracker = OrderQueueTracker()
+    t0 = 1_000_000_000
+    tracker.place_order(
+        order_id="b1",
+        side=Side.BUY,
+        price=100.0,
+        size=1.0,
+        existing_level_depth=0.0,
+        timestamp_ns=t0,
+        ack_delay_ns=10_000_000,
+    )
+    early = tracker.on_market_trade(100.0, 1.0, Side.SELL, trade_time_ns=t0 + 1_000_000)
+    assert early == []
+    late = tracker.on_market_trade(100.0, 1.0, Side.SELL, trade_time_ns=t0 + 20_000_000)
+    assert late == [("b1", 1.0)]
+
+
 def test_tick_simulator_end_to_end_stepping():
     sim = TickSimulator(symbol="BTCUSDT", maker_fee_bps=0.0, stress_latency_2x=False)
 

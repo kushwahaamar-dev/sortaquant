@@ -28,33 +28,33 @@ def test_raim_full_end_to_end_lifecycle():
     )
 
     # 2. Initialize Fast Body Simulator on Zero-Maker-Fee pair (BTC/FDUSD)
-    sim = TickSimulator(symbol="BTCFDUSD", maker_fee_bps=0.0, stress_latency_2x=False)
+    sim = TickSimulator(
+        symbol="BTCFDUSD",
+        maker_fee_bps=0.0,
+        stress_latency_2x=False,
+        slow_brain=slow_brain,
+    )
 
     # 3. Generate synthetic market transitioning through R1 -> R2 -> R3 -> R4 -> R1
     bbos, trades = MarketReplayAdapter.generate_synthetic_regime_dataset(n_ticks=500, seed=123)
 
-    # 4. Stream events through the simulator
-    trade_idx = 0
-    n_trades = len(trades)
-
+    # 4. Stream events in causal order (trades before the next BBO)
     regimes_visited = set()
     halt_observed = False
-
+    trade_idx = 0
+    n_trades = len(trades)
     for bbo in bbos:
-        # Step BBO tick through Fast Body
-        sim.step_bbo(bbo)
-
-        # Record active regime
-        current_regime = sim.regime_engine._last_output.active_regime
-        regimes_visited.add(current_regime)
-
-        if sim.regime_engine.is_halted:
-            halt_observed = True
-
-        # Process trades corresponding to this time window
-        while trade_idx < n_trades and trades[trade_idx].timestamp_ns <= bbo.timestamp_ns:
+        while trade_idx < n_trades and trades[trade_idx].timestamp_ns < bbo.timestamp_ns:
             sim.step_trade(trades[trade_idx])
             trade_idx += 1
+        sim.step_bbo(bbo)
+        if sim.regime_engine._last_output is not None:
+            regimes_visited.add(sim.regime_engine._last_output.active_regime)
+        if sim.regime_engine.is_halted:
+            halt_observed = True
+    while trade_idx < n_trades:
+        sim.step_trade(trades[trade_idx])
+        trade_idx += 1
 
     # 5. Verify system lifecycle invariants
     summary = sim.summarize()
