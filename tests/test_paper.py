@@ -54,3 +54,29 @@ def test_cli_audit_runs():
     from sortaquant.cli import main
 
     assert main(["audit"]) == 0
+
+
+def test_paper_heartbeat_fires():
+    from sortaquant.runtime.paper import PaperSession, SessionPhase
+
+    hits = []
+    session = PaperSession(symbol="BTCFDUSD", heartbeat_s=0.0, on_heartbeat=hits.append)
+    session.heartbeat_s = 0.001
+    session.phase = SessionPhase.CONNECTING
+    session.started_at_s = 1.0
+    session._last_heartbeat_s = 0.0
+    import json
+
+    depth = json.dumps(
+        {
+            "stream": "btcfdusd@depth20@100ms",
+            "data": {
+                "lastUpdateId": 1,
+                "bids": [["50000.00", "1.5"]],
+                "asks": [["50001.00", "1.2"]],
+            },
+        }
+    )
+    session._adapter.handle_raw_message(depth, local_timestamp_ns=1_000_000_000)
+    assert len(hits) >= 1
+    assert hits[0].bid_price is not None or hits[0].last_mid > 0
