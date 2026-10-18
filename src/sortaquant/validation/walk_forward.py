@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import List
+
 import numpy as np
 
-from sortaquant.core.types import BBO, Side, Trade
-from sortaquant.sim.simulator import TickSimulator, SimulationSummary
+from sortaquant.core.types import BBO, Trade
+from sortaquant.features import MicrostructureFeatureEngine
+from sortaquant.sim.simulator import TickSimulator
 
 
 @dataclass
@@ -20,6 +22,8 @@ class WalkForwardSplitResult:
     test_max_dd_pct: float
     test_markout_1s_bps: float
     gate1_passed: bool
+    embargo_gap: int
+    fitted: bool
 
 
 @dataclass
@@ -30,6 +34,15 @@ class WalkForwardReport:
     max_test_drawdown_pct: float
     gate1_pass_rate: float
     splits: List[WalkForwardSplitResult]
+
+
+def _train_feature_matrix(bbos: List[BBO], symbol: str = "BTCFDUSD") -> List[np.ndarray]:
+    engine = MicrostructureFeatureEngine(symbol)
+    rows: List[np.ndarray] = []
+    for bbo in bbos:
+        feats = engine.on_bbo(bbo)
+        rows.append(feats.to_vector())
+    return rows
 
 
 class WalkForwardValidator:
@@ -62,27 +75,30 @@ class WalkForwardValidator:
 
         for k in range(self.n_splits):
             train_end = (k + 1) * slice_size
-            test_start = train_end + self.purge_window_ticks
+            embargo_gap = self.purge_window_ticks + self.embargo_window_ticks
+            test_start = train_end + embargo_gap
             test_end = min(total_ticks, test_start + slice_size)
 
             if test_start >= test_end:
                 break
 
-            # 1. Train slice: Fit HMM parameters offline
             train_bbos = bbo_ticks[:train_end]
-
-            # 2. Test slice: Out-of-sample execution on quarantined test ticks
             test_bbos = bbo_ticks[test_start:test_end]
             test_trades = [
-                t for t in trade_ticks if test_bbos[0].timestamp_ns <= t.timestamp_ns <= test_bbos[-1].timestamp_ns
+                t
+                for t in trade_ticks
+                if test_bbos[0].timestamp_ns <= t.timestamp_ns <= test_bbos[-1].timestamp_ns
             ]
 
-            # Run tick simulator on test slice (causal tape order)
             sim = TickSimulator(maker_fee_bps=self.maker_fee_bps)
-            sim.run_tape(test_bbos, test_trades)
+            fitted = False
+            observations = _train_feature_matrix(train_bbos, symbol=sim.symbol)
+            if len(observations) >= 50:
+                sim.regime_engine.hmm.fit_offline(observations)
+                fitted = True
 
+            sim.run_tape(test_bbos, test_trades)
             summary = sim.summarize()
-            # Adverse-signed AS: negate favorable simulator markout for the hurdle
             adverse_1s = -summary.markout_1s_avg_bps
             gate1_ok = (self.maker_fee_bps + adverse_1s) < 0.60
 
@@ -96,6 +112,8 @@ class WalkForwardValidator:
                     test_max_dd_pct=summary.max_drawdown_pct,
                     test_markout_1s_bps=summary.markout_1s_avg_bps,
                     gate1_passed=gate1_ok,
+                    embargo_gap=embargo_gap,
+                    fitted=fitted,
                 )
             )
 

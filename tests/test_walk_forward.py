@@ -33,5 +33,6 @@ def test_walk_forward_cross_validation_splits():
     for s in report.splits:
         assert s.train_size > 0
         assert s.test_size > 0
-        # Out of sample drawdown must be non-negative
         assert s.test_max_dd_pct >= 0.0
+        assert s.embargo_gap == 40
+        assert s.fitted is True

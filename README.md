@@ -70,7 +70,20 @@ Market data defaults to `data-stream.binance.vision` (avoids geo blocks on `stre
 uv run sortaquant audit
 ```
 
-Paper mode opens a real WebSocket, runs the fast body, and matches your virtual quotes against the live trade tape. It does not place, cancel, or amend exchange orders. Live trading is not shipped.
+**Doctor** (imports, Gate 1, simulate smoke, live feed probe):
+
+```bash
+uv run sortaquant doctor
+uv run sortaquant doctor --offline   # skip live feed
+```
+
+**Walk-forward** (purged + embargoed, HMM fitted on train):
+
+```bash
+uv run sortaquant walkforward --ticks 500 --json-out /tmp/wf.json
+```
+
+Paper prints a heartbeat every 5s (`--heartbeat 0` to disable) and accepts `--json-out` for a run report. It does not place, cancel, or amend exchange orders. Live trading is not shipped.
 
 ## Key Invariants
 

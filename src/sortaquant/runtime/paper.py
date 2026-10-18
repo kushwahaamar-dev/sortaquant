@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from sortaquant.adapters.binance import BinanceWebSocketAdapter
 from sortaquant.core.types import BBO, BookLevel, Trade
@@ -19,6 +19,9 @@ class SessionPhase(str, Enum):
     LIVE = "live"
     HALTED = "halted"
     STOPPED = "stopped"
+
+
+HeartbeatFn = Callable[["PaperSnapshot"], None]
 
 
 @dataclass
@@ -34,6 +37,16 @@ class PaperSnapshot:
     halted: bool
     last_mid: float
     elapsed_s: float
+    bid_price: Optional[float] = None
+    ask_price: Optional[float] = None
+    bid_size: float = 0.0
+    ask_size: float = 0.0
+    feed_url: str = ""
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["phase"] = self.phase.value
+        return d
 
 
 @dataclass
@@ -44,12 +57,15 @@ class PaperSession:
     is_perp: bool = False
     maker_fee_bps: float = 0.0
     data_host: Optional[str] = None
+    heartbeat_s: float = 5.0
+    on_heartbeat: Optional[HeartbeatFn] = None
     phase: SessionPhase = SessionPhase.IDLE
     bbo_count: int = 0
     trade_count: int = 0
     started_at_s: float = 0.0
     _adapter: BinanceWebSocketAdapter = field(init=False, repr=False)
     _sim: TickSimulator = field(init=False, repr=False)
+    _last_heartbeat_s: float = field(default=0.0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         sym = self.symbol.replace("/", "").replace("-", "").upper()
@@ -67,6 +83,15 @@ class PaperSession:
     def simulator(self) -> TickSimulator:
         return self._sim
 
+    def _maybe_heartbeat(self) -> None:
+        if self.on_heartbeat is None or self.heartbeat_s <= 0:
+            return
+        now = time.time()
+        if now - self._last_heartbeat_s < self.heartbeat_s:
+            return
+        self._last_heartbeat_s = now
+        self.on_heartbeat(self.snapshot())
+
     def _on_depth(self, bbo: BBO, bids: List[BookLevel], asks: List[BookLevel]) -> None:
         self.bbo_count += 1
         self._sim.step_bbo(bbo, bids=bids, asks=asks)
@@ -74,10 +99,12 @@ class PaperSession:
             self.phase = SessionPhase.HALTED
         elif self.phase == SessionPhase.CONNECTING:
             self.phase = SessionPhase.LIVE
+        self._maybe_heartbeat()
 
     def _on_trade(self, trade: Trade) -> None:
         self.trade_count += 1
         self._sim.step_trade(trade)
+        self._maybe_heartbeat()
 
     def snapshot(self) -> PaperSnapshot:
         summary = self._sim.summarize()
@@ -90,15 +117,21 @@ class PaperSession:
             position=self._sim.risk_governor.current_position,
             net_pnl=summary.total_net_pnl,
             markout_1s_avg_bps=summary.markout_1s_avg_bps,
-            halted=self.phase == SessionPhase.HALTED,
+            halted=self.phase == SessionPhase.HALTED or self._sim.last_halted,
             last_mid=self._sim._last_mid,
             elapsed_s=max(0.0, time.time() - self.started_at_s) if self.started_at_s else 0.0,
+            bid_price=self._sim.last_bid_price,
+            ask_price=self._sim.last_ask_price,
+            bid_size=self._sim.last_bid_size,
+            ask_size=self._sim.last_ask_size,
+            feed_url=self._adapter.ws_endpoint,
         )
 
     async def run(self, duration_s: float = 30.0) -> SimulationSummary:
         """Connect to Binance and paper-trade for duration_s seconds."""
         self.phase = SessionPhase.CONNECTING
         self.started_at_s = time.time()
+        self._last_heartbeat_s = 0.0
         await self._adapter.connect()
         try:
             frames = await self._adapter.run(duration_s=duration_s)

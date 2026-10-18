@@ -94,6 +94,11 @@ class TickSimulator:
         self._active_bid_id: Optional[str] = None
         self._active_ask_id: Optional[str] = None
         self._order_counter: int = 0
+        self.last_bid_price: Optional[float] = None
+        self.last_ask_price: Optional[float] = None
+        self.last_bid_size: float = 0.0
+        self.last_ask_size: float = 0.0
+        self.last_halted: bool = False
 
     def step_bbo(self, bbo: BBO, bids: Optional[List[BookLevel]] = None, asks: Optional[List[BookLevel]] = None) -> None:
         """Processes an L2 book update tick."""
@@ -147,6 +152,11 @@ class TickSimulator:
         )
 
         self._update_quotes_in_queue(governed, bbo)
+        self.last_bid_price = governed.bid_price
+        self.last_ask_price = governed.ask_price
+        self.last_bid_size = governed.bid_size
+        self.last_ask_size = governed.ask_size
+        self.last_halted = bool(governed.is_halted or self.regime_engine.is_halted)
 
         total_pnl = self.risk_governor.equity(bbo.mid_price) - self.risk_governor.config.capital_budget
         self.pnl_history.append((bbo.timestamp_ns, total_pnl))
